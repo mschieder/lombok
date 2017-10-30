@@ -21,9 +21,20 @@
  */
 package lombok.eclipse;
 
-import static lombok.eclipse.Eclipse.*;
-import static lombok.eclipse.handlers.EclipseHandlerUtil.*;
-import static lombok.eclipse.EclipseAugments.ASTNode_handled;
+import lombok.Lombok;
+import lombok.core.AnnotationValues;
+import lombok.core.AnnotationValues.AnnotationValueDecodeFail;
+import lombok.core.HandlerPriority;
+import lombok.core.SpiLoadUtil;
+import lombok.core.TypeLibrary;
+import lombok.core.TypeResolver;
+import lombok.core.configuration.ConfigurationKeysLoader;
+import lombok.core.debug.ProblemReporter;
+import lombok.eclipse.handlers.HandleMetaAnnotation;
+import lombok.experimental.MetaAnnotation;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 
 import java.io.IOException;
 import java.lang.annotation.Annotation;
@@ -32,21 +43,13 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import lombok.Lombok;
-import lombok.core.AnnotationValues;
-import lombok.core.AnnotationValues.AnnotationValueDecodeFail;
-import lombok.core.configuration.ConfigurationKeysLoader;
-import lombok.core.HandlerPriority;
-import lombok.core.SpiLoadUtil;
-import lombok.core.TypeLibrary;
-import lombok.core.TypeResolver;
-
-import org.eclipse.jdt.internal.compiler.ast.ASTNode;
-import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import static lombok.eclipse.Eclipse.*;
+import static lombok.eclipse.EclipseAugments.*;
+import static lombok.eclipse.handlers.EclipseHandlerUtil.*;
 
 /**
  * This class tracks 'handlers' and knows how to invoke them for any given AST node.
@@ -135,6 +138,7 @@ public class HandlerLibrary {
 		HandlerLibrary lib = new HandlerLibrary();
 		
 		loadAnnotationHandlers(lib);
+		loadMetaAnnotationHandlers(lib);
 		loadVisitorHandlers(lib);
 		
 		lib.calculatePriorities();
@@ -176,7 +180,40 @@ public class HandlerLibrary {
 			throw Lombok.sneakyThrow(e);
 		}
 	}
-	
+
+
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	private static void loadMetaAnnotationHandlers(HandlerLibrary lib) {
+		try {
+			for (EclipseAnnotationHandler<?> handler : SpiLoadUtil.findServices(EclipseAnnotationHandler.class, EclipseAnnotationHandler.class.getClassLoader())) {
+				try {
+					if (handler instanceof HandleMetaAnnotation){
+						Set<String> allMetaAnnotations = EclipseMetaAnnotationHelper.getAllMetaAnnotations();
+						log("found meta-annotations: " + allMetaAnnotations);
+						for(String nextMetaAnnotationClassName: allMetaAnnotations) {
+							Class<? extends Annotation> annotationClass = MetaAnnotation.class;
+							AnnotationHandlerContainer<?> container = new AnnotationHandlerContainer(handler, annotationClass);
+							String annotationClassName = nextMetaAnnotationClassName;
+							if (lib.annotationHandlers.put(annotationClassName, container) != null) {
+								error(null, "Duplicate handlers for annotation type: " + annotationClassName, null);
+							}
+							lib.typeLibrary.addType(nextMetaAnnotationClassName);
+						}
+					}
+
+				} catch (Throwable t) {
+					error(null, "Can't load Lombok annotation handler for Eclipse: " + t.getMessage(), t);
+				}
+			}
+		} catch (IOException e) {
+			throw Lombok.sneakyThrow(e);
+		}
+	}
+
+	private static void log(String message){
+		ProblemReporter.info("HandlerLibrary: " + message, null);
+	}
+
 	/** Uses SPI Discovery to find implementations of {@link EclipseASTVisitor}. */
 	private static void loadVisitorHandlers(HandlerLibrary lib) {
 		try {

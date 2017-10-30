@@ -38,10 +38,13 @@ import javax.tools.Diagnostic;
 
 import lombok.core.AnnotationValues.AnnotationValueDecodeFail;
 import lombok.core.HandlerPriority;
+import lombok.core.MetaAnnotationProcessor;
 import lombok.core.SpiLoadUtil;
 import lombok.core.TypeLibrary;
 import lombok.core.TypeResolver;
 import lombok.core.configuration.ConfigurationKeysLoader;
+import lombok.experimental.MetaAnnotation;
+import lombok.javac.handlers.HandleMetaAnnotation;
 import lombok.javac.handlers.JavacHandlerUtil;
 
 import com.sun.source.util.Trees;
@@ -154,6 +157,7 @@ public class HandlerLibrary {
 		
 		try {
 			loadAnnotationHandlers(library, trees);
+			loadMetaAnnotationHandlers(library,trees);
 			loadVisitorHandlers(library, trees);
 		} catch (IOException e) {
 			System.err.println("Lombok isn't running due to misconfigured SPI files: " + e);
@@ -179,7 +183,30 @@ public class HandlerLibrary {
 			lib.typeLibrary.addType(container.annotationClass.getName());
 		}
 	}
-	
+
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	private static void loadMetaAnnotationHandlers(HandlerLibrary lib, Trees trees) throws IOException {
+		lib.javacWarning("processing meta-annotations... " + MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty());
+		//No, that seemingly superfluous reference to JavacAnnotationHandler's classloader is not in fact superfluous!
+		for (JavacAnnotationHandler handler : SpiLoadUtil.findServices(JavacAnnotationHandler.class, JavacAnnotationHandler.class.getClassLoader())) {
+			if (handler instanceof HandleMetaAnnotation) {
+				log("found meta-annotations: " + MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty());
+				for(String nextMetaAnnotationClassName: MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty()){
+					handler.setTrees(trees);
+					Class<? extends Annotation> annotationClass = MetaAnnotation.class;
+					AnnotationHandlerContainer<?> container = new AnnotationHandlerContainer(handler, annotationClass);
+					String annotationClassName = nextMetaAnnotationClassName;
+					if (lib.annotationHandlers.put(annotationClassName, container) != null) {
+						lib.javacWarning("Duplicate handlers for annotation type: " + annotationClassName);
+					}
+					lib.typeLibrary.addType(annotationClassName);
+				}
+			}
+		}
+	}
+	private static void log(String message){
+		System.out.println("HandlerLibrary: " + message);
+	}
 	/** Uses SPI Discovery to find implementations of {@link JavacASTVisitor}. */
 	private static void loadVisitorHandlers(HandlerLibrary lib, Trees trees) throws IOException {
 		//No, that seemingly superfluous reference to JavacASTVisitor's classloader is not in fact superfluous!
