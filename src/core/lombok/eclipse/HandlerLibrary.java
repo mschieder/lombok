@@ -25,6 +25,7 @@ import lombok.Lombok;
 import lombok.core.AnnotationValues;
 import lombok.core.AnnotationValues.AnnotationValueDecodeFail;
 import lombok.core.HandlerPriority;
+import lombok.core.meta.MetaAnnotationRegistry;
 import lombok.core.SpiLoadUtil;
 import lombok.core.TypeLibrary;
 import lombok.core.TypeResolver;
@@ -43,7 +44,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
@@ -129,6 +129,8 @@ public class HandlerLibrary {
 	
 	private Collection<VisitorContainer> visitorHandlers = new ArrayList<VisitorContainer>();
 
+	private static HandlerLibrary lastLoaded = null;
+
 	/**
 	 * Creates a new HandlerLibrary.  Errors will be reported to the Eclipse Error log.
 	 * then uses SPI discovery to load all annotation and visitor based handlers so that future calls
@@ -142,10 +144,10 @@ public class HandlerLibrary {
 		loadVisitorHandlers(lib);
 		
 		lib.calculatePriorities();
-		
+		lastLoaded = lib;
 		return lib;
 	}
-	
+
 	private SortedSet<Long> priorities;
 	
 	public SortedSet<Long> getPriorities() {
@@ -187,10 +189,11 @@ public class HandlerLibrary {
 		try {
 			for (EclipseAnnotationHandler<?> handler : SpiLoadUtil.findServices(EclipseAnnotationHandler.class, EclipseAnnotationHandler.class.getClassLoader())) {
 				try {
-					if (handler instanceof HandleMetaAnnotation){
-						Set<String> allMetaAnnotations = EclipseMetaAnnotationHelper.getAllMetaAnnotations();
-						log("found meta-annotations: " + allMetaAnnotations);
-						for(String nextMetaAnnotationClassName: allMetaAnnotations) {
+					if (handler instanceof HandleMetaAnnotation) {
+						Map<String, String> metaMap = EclipseMetaAnnotationUtils.getAllMetaAnnotations();
+						log("found meta-annotations: " + metaMap.keySet());
+						MetaAnnotationRegistry.register(metaMap);
+						for (String nextMetaAnnotationClassName : metaMap.keySet()) {
 							Class<? extends Annotation> annotationClass = MetaAnnotation.class;
 							AnnotationHandlerContainer<?> container = new AnnotationHandlerContainer(handler, annotationClass);
 							String annotationClassName = nextMetaAnnotationClassName;
@@ -200,7 +203,6 @@ public class HandlerLibrary {
 							lib.typeLibrary.addType(nextMetaAnnotationClassName);
 						}
 					}
-
 				} catch (Throwable t) {
 					error(null, "Can't load Lombok annotation handler for Eclipse: " + t.getMessage(), t);
 				}
@@ -289,5 +291,9 @@ public class HandlerLibrary {
 						String.format("Lombok visitor handler %s failed", container.visitor.getClass()), t);
 			}
 		}
+	}
+
+	public static HandlerLibrary getLastLoaded() {
+		return lastLoaded;
 	}
 }

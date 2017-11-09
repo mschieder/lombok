@@ -1,46 +1,95 @@
 package lombok.eclipse.handlers;
 
-import lombok.AccessLevel;
+import lombok.core.AST;
 import lombok.core.AnnotationValues;
+import lombok.core.LombokNode;
+import lombok.core.meta.MetaAnnotationRegistry;
 import lombok.core.debug.ProblemReporter;
 import lombok.eclipse.EclipseAnnotationHandler;
+import lombok.eclipse.EclipseMetaAnnotationUtils;
 import lombok.eclipse.EclipseNode;
 import lombok.experimental.MetaAnnotation;
+import lombok.eclipse.HandlerLibrary;
+import lombok.core.meta.SimpleAnnotationParser;
+import lombok.core.meta.SimpleAnnotationParserException;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.mangosdk.spi.ProviderFor;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static lombok.ConfigurationKeys.EXPERIMENTAL_META_ANNOTATION;
+
 @ProviderFor(EclipseAnnotationHandler.class)
-public class HandleMetaAnnotation extends EclipseAnnotationHandler<MetaAnnotation>{
-
-    private boolean notAClass(EclipseNode typeNode){
-        TypeDeclaration typeDecl = null;
-        if (typeNode.get() instanceof TypeDeclaration) typeDecl = (TypeDeclaration) typeNode.get();
-        int modifiers = typeDecl == null ? 0 : typeDecl.modifiers;
-        boolean notAClass = (modifiers &
-                (ClassFileConstants.AccInterface | ClassFileConstants.AccAnnotation | ClassFileConstants.AccEnum)) != 0;
-
-        return notAClass;
-    }
+public class HandleMetaAnnotation extends EclipseAnnotationHandler<MetaAnnotation> {
 
     @Override
     public void handle(AnnotationValues<MetaAnnotation> annotation, Annotation ast, EclipseNode annotationNode) {
-        EclipseNode typeNode = annotationNode.up();
+        EclipseNode node = annotationNode.up();
 
-        log("in handle with node: " + typeNode.toString());
-        if (notAClass(typeNode)){
-             return;
+        if (annotationNode.toString().contains("@" + MetaAnnotation.class.getName()) || annotationNode.toString().contains("@" + MetaAnnotation.class.getSimpleName())) {
+            return;
         }
-        log("adding getter/setter for node: " + typeNode.toString());
-        //
-        new HandleGetter().generateGetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true);
-        new HandleSetter().generateSetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true);
+        log("in handle with annotationNode: " + annotationNode.get().toString());
 
+        String fullQualifiedAnnotationName = getFullQualifiedName(annotationNode, node);
+        log("fully qualified name " + fullQualifiedAnnotationName);
+
+        String name = MetaAnnotationRegistry.getName(fullQualifiedAnnotationName);
+        if (name == null) {
+            node.addError("cannot find meta-annotation profile name for annotation " + fullQualifiedAnnotationName);
+            return;
+        }
+
+        List<String> annotations = readAllAnnotationsFor(name, node);
+        log("read meta-annotation profile " + name + ": " + annotations);
+
+        List<EclipseNode> lombokNodes = new ArrayList<EclipseNode>();
+        for (String next : annotations) {
+            try {
+                SimpleAnnotationParser.Anno anno = SimpleAnnotationParser.parseEntry(next, node);
+                Annotation eclipseAnnotation = EclipseMetaAnnotationUtils.addAnnotationFromMetadata(anno, node);
+
+                EclipseNode addedNode = node.add(eclipseAnnotation, AST.Kind.ANNOTATION);
+                if (anno.getName().startsWith("lombok.")) {
+                    lombokNodes.add(addedNode);
+                }
+            } catch (SimpleAnnotationParserException e) {
+                node.addError("error while adding annotation " + next + ": " + e.getMessage());
+                return;
+            }
+        }
+
+        //handle lombok annotations
+        HandlerLibrary handlerLibrary = HandlerLibrary.getLastLoaded();
+        for (long priority : handlerLibrary.getPriorities()) {
+            for (EclipseNode nextNode : lombokNodes)
+                handlerLibrary.handleAnnotation(null, nextNode, (Annotation) nextNode.get(), priority);
+        }
+    }
+
+    private String getFullQualifiedName(LombokNode<?, ?, ?> annotationNode, LombokNode<?, ?, ?> node) {
+        String annotationName = annotationNode.get().toString().replace("@", "");
+        if (annotationName.contains("(")){
+            annotationName = annotationName.substring(0,annotationName.indexOf('('));
+        }
+        String fullQualifiedAnnotationName = node.getImportList().getFullyQualifiedNameForSimpleName(annotationName);
+        return fullQualifiedAnnotationName != null ? fullQualifiedAnnotationName : node.getPackageDeclaration() + "." + annotationName;
     }
 
 
-    private void log(String message){
+    private List<String> readAllAnnotationsFor(String name, EclipseNode typeNode) {
+        List<String> result = new ArrayList<String>();
+        for (String next : typeNode.getAst().readConfiguration(EXPERIMENTAL_META_ANNOTATION)) {
+            if (next.startsWith(name + ":")) {
+                result.add(next.substring(name.length() + 1).trim());
+            }
+        }
+        return result;
+    }
+
+
+    private static void log(String message) {
         ProblemReporter.info("HandleMetaAnnotation: " + message, null);
     }
 }

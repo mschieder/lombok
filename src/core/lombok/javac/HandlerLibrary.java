@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2014 The Project Lombok Authors.
+ * Copyright (C) 2009-2017 The Project Lombok Authors.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,7 +38,8 @@ import javax.tools.Diagnostic;
 
 import lombok.core.AnnotationValues.AnnotationValueDecodeFail;
 import lombok.core.HandlerPriority;
-import lombok.core.MetaAnnotationProcessor;
+import lombok.core.meta.MetaAnnotationProcessor;
+import lombok.core.meta.MetaAnnotationRegistry;
 import lombok.core.SpiLoadUtil;
 import lombok.core.TypeLibrary;
 import lombok.core.TypeResolver;
@@ -63,7 +64,8 @@ public class HandlerLibrary {
 	private final Map<String, AnnotationHandlerContainer<?>> annotationHandlers = new HashMap<String, AnnotationHandlerContainer<?>>();
 	private final Collection<VisitorContainer> visitorHandlers = new ArrayList<VisitorContainer>();
 	private final Messager messager;
-	
+	private static HandlerLibrary lastLoaded = null;
+
 	/**
 	 * Creates a new HandlerLibrary that will report any problems or errors to the provided messager.
 	 * You probably want to use {@link #load(Messager)} instead.
@@ -164,10 +166,10 @@ public class HandlerLibrary {
 		}
 		
 		library.calculatePriorities();
-		
+		lastLoaded = library;
 		return library;
 	}
-	
+
 	/** Uses SPI Discovery to find implementations of {@link JavacAnnotationHandler}. */
 	@SuppressWarnings({"rawtypes", "unchecked"})
 	private static void loadAnnotationHandlers(HandlerLibrary lib, Trees trees) throws IOException {
@@ -190,8 +192,10 @@ public class HandlerLibrary {
 		//No, that seemingly superfluous reference to JavacAnnotationHandler's classloader is not in fact superfluous!
 		for (JavacAnnotationHandler handler : SpiLoadUtil.findServices(JavacAnnotationHandler.class, JavacAnnotationHandler.class.getClassLoader())) {
 			if (handler instanceof HandleMetaAnnotation) {
-				log("found meta-annotations: " + MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty());
-				for(String nextMetaAnnotationClassName: MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty()){
+				Map<String, String> metaMap = MetaAnnotationProcessor.getAllMetaAnnotationsFromSystemProperty();
+				log("found meta-annotations: " + metaMap.keySet());
+				MetaAnnotationRegistry.register(metaMap);
+				for (String nextMetaAnnotationClassName : metaMap.keySet()) {
 					handler.setTrees(trees);
 					Class<? extends Annotation> annotationClass = MetaAnnotation.class;
 					AnnotationHandlerContainer<?> container = new AnnotationHandlerContainer(handler, annotationClass);
@@ -204,7 +208,8 @@ public class HandlerLibrary {
 			}
 		}
 	}
-	private static void log(String message){
+
+	private static void log(String message) {
 		System.out.println("HandlerLibrary: " + message);
 	}
 	/** Uses SPI Discovery to find implementations of {@link JavacASTVisitor}. */
@@ -265,7 +270,7 @@ public class HandlerLibrary {
 		if (fqn == null) return;
 		AnnotationHandlerContainer<?> container = annotationHandlers.get(fqn);
 		if (container == null) return;
-		
+
 		try {
 			if (container.getPriority() == priority) {
 				if (checkAndSetHandled(annotation)) container.handle(node);
@@ -288,5 +293,9 @@ public class HandlerLibrary {
 		} catch (Throwable t) {
 			javacError(String.format("Lombok visitor handler %s failed", container.visitor.getClass()), t);
 		}
+	}
+
+	public static HandlerLibrary getLastLoaded() {
+		return lastLoaded;
 	}
 }

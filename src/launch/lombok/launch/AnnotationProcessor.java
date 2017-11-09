@@ -122,7 +122,7 @@ class AnnotationProcessorHider {
 		private static AbstractProcessor createWrappedInstance() {
 			ClassLoader cl = Main.createShadowClassLoader();
 			try {
-				Class<?> mc = cl.loadClass("lombok.core.MetaAnnotationProcessor");
+				Class<?> mc = cl.loadClass("lombok.core.meta.MetaAnnotationProcessor");
 				return (AbstractProcessor) mc.newInstance();
 			} catch (Throwable t) {
 				if (t instanceof Error) throw (Error) t;

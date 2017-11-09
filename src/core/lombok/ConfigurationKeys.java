@@ -388,7 +388,10 @@ public class ConfigurationKeys {
 	 * promoted to a main feature results in a warning / error.
 	 */
 	public static final ConfigurationKey<FlagUsageType> EXPERIMENTAL_FLAG_USAGE = new ConfigurationKey<FlagUsageType>("lombok.experimental.flagUsage", "Emit a warning or error if an experimental feature is used.") {};
-	
+
+
+	public static final ConfigurationKey<List<String>> EXPERIMENTAL_META_ANNOTATION = new ConfigurationKey<List<String>>("lombok.meta-annotation", "configuration for meta-annoations") {};
+
 	// ----- Accessors -----
 	
 	/**
@@ -427,7 +430,7 @@ public class ConfigurationKeys {
 	 * If set, <em>any</em> usage of {@code @ExtensionMethod} results in a warning / error.
 	 */
 	public static final ConfigurationKey<FlagUsageType> EXTENSION_METHOD_FLAG_USAGE = new ConfigurationKey<FlagUsageType>("lombok.extensionMethod.flagUsage", "Emit a warning or error if @ExtensionMethod is used.") {};
-	
+
 	// ----- FieldDefaults -----
 	
 	/**
